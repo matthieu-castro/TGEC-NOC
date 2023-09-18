@@ -1,2 +1,2 @@
 # TGEC-NOC
-TGEC stellar models optimization code 
+TGEC (Toulouse-Geneva Evolution Code) stellar models optimization code 
