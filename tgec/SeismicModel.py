@@ -1,9 +1,31 @@
 import os
+import struct
 
 import numpy as np
+from tgec.constants import ggrav
 
 from nocpkg.Seismic import Seismic
 from nocpkg.utils import NOCError
+
+# def fromstring(endian):
+#     """
+#     Handle the problems caused by endian types:
+#     - Big endian: Sun, HP, etc
+#     - Little endian: Intel machines
+#     Giving the endian type of the file, the endian type of the machine
+#     is automatically determined by the constant LittleEndian from numpy
+#     The conventions are as those given in 'struct' module:
+#     '@','=' : File is native (was produced on the same machine)
+#     '<'     : File is little endian
+#     '>','!' : File is big endian (network)
+#     :param endian: endianness
+#     :return: tuple
+#     """
+#     littleendian = False
+#     try:
+#         if np.little_endian:
+#             littleendian = True
+#     except:
 
 
 class SeismicModel:
@@ -48,7 +70,7 @@ class SeismicModel:
         self.setup = setup
         seismic_constraints = setup.seismic_constraints
         settings = setup.settings
-        lsep_target = setup.seismic_constraints.lsep_target
+        lsep_target = seismic_constraints.lsep_target
 
         modesset = settings['modes']
         oscprog = modesset['oscprog']
@@ -59,7 +81,8 @@ class SeismicModel:
             path = f"{self.name}/freqs/{self.pulse_output}"
             self.read_pulse(path)
         elif oscprog == 'adipls':
-            self.read_agsm(self.name + '.agsm')
+            path = f"{self.name}/freqs/{self.name}.agsm"
+            self.read_agsm(path)
             self.modes = self.modes[:, 0:4]
         else:
             print(f"{oscprog}: unknown oscillation program")
@@ -158,7 +181,8 @@ class SeismicModel:
         if oscprog is None:
             raise NOCError("Unspecified pulsation program")
         if oscprog == 'adipls':
-            self.read_agsm(name + '.agsm')
+            path = f"{self.name}/freqs/{self.name}.agsm"
+            self.read_agsm(path)
             self.modes = self.modes[:, 0:4]
         elif oscprog == 'pulse':
             path = f"{self.name}/freqs/{self.pulse_output}"
@@ -355,7 +379,56 @@ class SeismicModel:
         self.seismic = Seismic(self.modes)
 
     def read_agsm(self, file):
-        pass
+        """
+        Read agsm output file from ADIPLS frequencies calculation
+        :param file: agsm file
+        OUTPUTS:
+        modes[:,0] : n order
+        modes[:,1] : l degree
+        modes[:,2] : nu frequency in muHz (eigenvalue)
+        modes[:,3] : square normalised frequency (w2)
+        modes[:,4] : Richardson frequency in muHz
+        modes[:,5] : variationnal frequency in muHz
+        modes[:,6] : icase
+        modes[:,7] : Inertia
+        """
+        f = FortranBinaryFile(file, mode='r')
+        cs = []
+
+        while True:
+            try:
+                csi = f.readRecordNative('d')
+                cs.append(csi)
+            except IndexError:
+                break
+
+        nmodes = len(cs)
+        self.modes = np.zeros((nmodes, 8))
+        mstar = cs[0][1]
+        rstar = cs[0][2]
+        for i in range(nmodes):
+            self.modes[i, 0] = cs[i][18]  # n
+            self.modes[i, 1] = cs[i][17]  # l
+            sigma2 = cs[i][19]
+            omega2 = sigma2*ggrav*mstar/(rstar**3)
+            self.modes[i, 2] = np.sqrt(omega2)/(2*np.pi)*1e6  # nu in muHz
+            self.modes[i, 3] = sigma2
+            self.modes[i, 4] = cs[i][36]*1e3  # Richardson frequency in muHz
+            self.modes[i, 5] = cs[i][26]*1e3  # Variational frequency in muHz
+            self.modes[i, 7] = cs[i][23]
+        # Reading the 'ics' integer variables
+        f.close()
+
+        f = FortranBinaryFile(file, mode='r')
+        n = 38*2
+        for i in range(nmodes):
+            data = f.readRecordNative('i')
+            ics = data[n: n+8]
+            self.modes[i, 6] = ics[4]
+
+        f.close()
+
+        self.seismic = Seismic(self.modes, lfirst=False)
 
     def __reorder_modes(self):
         """
@@ -372,3 +445,53 @@ class SeismicModel:
             for i in [0, 2, 3]:
                 inverted = np.flip(self.modes[i_list[0]:i_list[-1]+1, i])
                 self.modes[:, i] = np.concatenate((self.modes[:i_list[0], i], inverted, self.modes[i_list[-1]+1:, i]))
+
+
+class FortranBinaryFile:
+
+    def __init__(self, filename, mode='r', endian='@'):
+        """
+        Fortran binary file support
+        :param filename: name of the Fortran binary file
+        :param mode: 'r' for read, 'w' for write. Default: 'r'
+        :param endian: endian in binary file
+        """
+        self.filename = os.path.expanduser(filename)
+        self.endian = endian
+        # self.swap, self.fromstring = fromstring(endian)
+        setattr(FortranBinaryFile, 'readRecord', FortranBinaryFile.__dict__['readRecordNative'])
+
+        if mode == 'r':
+            if not os.path.exists(filename):
+                raise IOError(2, 'No such file or directory: ' + filename)
+            if filename[-2:] == '.Z':
+                self.file = os.popen("uncompress -c " + filename, 'rb')
+            if filename[-3:] == '.gz':
+                self.file = os.popen("gunzip -c " + filename, 'rb')
+            else:
+                try:
+                    self.file = open(filename, 'rb')
+                except:
+                    raise IOError
+
+            self.filesize = os.path.getsize(filename)
+
+        else:
+            raise IOError(0, 'Illegal mode: ' + repr(mode))
+
+    def close(self):
+        if not self.file.closed:
+            self.file.close()
+
+    def readRecordNative(self, dtype=None):
+        a = self.file.read(4)  # record size in bytes
+        recordsize = np.frombuffer(a, 'i')
+        record = self.file.read(recordsize[0])
+        self.file.read(4)  # record size in bytes
+
+        if dtype in ('f', 'i', 'I', 'b', 'B', 'h', 'H', 'l', 'L', 'd'):
+            return np.frombuffer(record, dtype)
+        elif dtype in ('c', 'x'):
+            return struct.unpack(self.endian+'1'+dtype, record)
+        else:
+            return None, record

@@ -22,6 +22,7 @@ class Setup:
         self.seismic_constraints = SeismicConstraints('')
         self.settings = {}
         self.calc_freqs = False
+        self.lsep_target = None
         if json_file is not None:
             with open(json_file) as f:
                 try:
@@ -249,8 +250,12 @@ class Setup:
         self.targets = [Target(elem) for elem in jsontargets]
         # If numax or largesep are in Targets, we must calculate the frequencies of the model
         # targets_name = [t.name for t in self.targets]
-        if 'largesep' in [t.name for t in self.targets]:
-            self.calc_freqs = True
+        # if 'largesep' in [t.name for t in self.targets]:
+        #     self.calc_freqs = True
+        for t in self.targets:
+            if t.name == 'largesep':
+                self.calc_freqs = True
+                self.lsep_target = t.value
         self.__get_ntargs()  # Calculate number of targets
 
         # process settings #

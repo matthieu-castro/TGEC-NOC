@@ -222,7 +222,6 @@ class LevMar:
             raise NOCError(text_err)
         # We may need to truncate the matrix
         limit = max(s)/self.hess_cdtnb_thr
-        truncated = False
         # Diagonal matrix that contain the singular values (eigenvalues)
         Si = np.zeros((self.nparams, self.nparams))
         truncated = [s[i] < limit for i in range(self.nparams)]
@@ -236,7 +235,9 @@ class LevMar:
             text += text_warn
 
         # Inverse matrix A^-1 = V^t S^-1 U^t
+        # alpha = np.dot(np.transpose(V), np.dot(np.linalg.inv(Si), np.transpose(U)))
         alpha = np.dot(np.transpose(V), np.dot(Si, np.transpose(U)))
+        text += self.hessian2str(alpha, self.parameters)
         # Calculation of the errors on optimized parameters
         for i in range(self.nparams):
             self.parameters[i].sigma = np.sqrt(alpha[i, i])
@@ -453,6 +454,9 @@ class LevMar:
         for i, p in enumerate(self.parameters):
             mask_nan = np.argwhere(np.isfinite(shift_model[:, j]))
             jacob_tmp = (shift_model[:, j] - center_model[:])/steps[i]
+            # # if p.name == 'age':
+            # print(f"p = {p.name}: jacob_tmp = {jacob_tmp}, shift_model[:, {j}] = {shift_model[:, j]}, "
+            #       f"center_model = {center_model[:]}, steps = {steps[i]}")
             self.__reorder_outputs(jacob_tmp[mask_nan].flatten(), jacob[i, :])
             # self.__reorder_outputs(np.compress(mask_nan, jacob_tmp), jacob[i, :])
             j += 1
@@ -484,8 +488,11 @@ class LevMar:
                 for l in range(self.ny):
                     for m in range(self.ny):
                         tmp += 0.5*self.W[l, m] * (jacob[i, l]*jacob[j, m] + jacob[i, m]*jacob[j, l])
+                        # if tmp == 0 and l == m:
+                        #      print(f"W[{l}, {m}] = {self.W[l, m]}, jacob[{i}, {l}] = {jacob[i, l]}"
+                        #            f", jacob[{j}, {m}] = {jacob[j, m]}, jacob[{i}, {m}] = {jacob[i, m]}"
+                        #            f", jacob[{j}, {l}] = {jacob[j, l]}")
                 alpha[i, j] = tmp * (1.0 + lamb*(i == j))
-                # print(f"alpha[{i},{j}] = {alpha[i,j]}")
 
         for i in range(1, nparams):
             for j in range(i):

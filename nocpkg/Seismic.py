@@ -7,9 +7,9 @@ class Seismic:
     """
     Calculation of the different seismic constraints from the frequencies table.
     """
-    n = np.empty(0, dtype=np.int)
-    l = np.empty(0, dtype=np.int)
-    lval = np.empty(0, dtype=np.int)
+    n = np.empty(0, dtype=np.int32)
+    l = np.empty(0, dtype=np.int32)
+    lval = np.empty(0, dtype=np.int32)
     nu = np.empty(0)
     sigma = np.empty(0)
     y = np.empty(0)

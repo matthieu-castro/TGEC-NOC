@@ -1,10 +1,11 @@
 import glob
 import os.path
+import struct
 import sys
 import time
-from os import path
 
 import numpy as np
+from scipy import interpolate
 
 import tgec.constants
 from tgec.Parameters import *
@@ -17,15 +18,15 @@ msun = tgec.constants.msun
 rsun = tgec.constants.rsun
 
 
-def extract_column(list, column):
+def extract_column(string_list, column):
     """
     The original file is an array of values in a file. After reading the file, we have a list of string, each string
     being a line of the array. The function extract a column of the original array form the list of string.
-    :param list: list of string
+    :param string_list: list of string
     :param column: column to extract
     :return: extracted column in a ndarray
     """
-    return np.array([line.split()[column] for line in list], dtype=float)
+    return np.array([line.split()[column] for line in string_list], dtype=float)
 
 
 class Model:
@@ -82,6 +83,12 @@ class Model:
         # Calculated seismic outputs
         self.large_sep = 0.0
         self.numax = np.array([], dtype=float)
+        # Initialization of instantaneous variables
+        (self.rmass, self.rdens, self.rray, self.rtemp, self.rhot, self.hp, self.n2mu, self.xpress, self.delrad,
+         self.delad, self.gradthermreal, self.gamma1, self.abond4, self.vmu, self.deltamux, self.itypezone,
+         self.xkhirho, self.xkhitemp, self.Bledoux, self.xlogQ, self.mode) \
+            = [np.array([], float) for _ in range(21)]
+        self.nlayers = 0
 
         # Dictionary of the evolution model output variables. Filled in the function read_output
         self.dict_output = {}
@@ -122,7 +129,7 @@ class Model:
         """
         self.finished = False
         if update_com:
-            self.params.update_com(self.age_model)
+            self.params.update_params(self.age_model)
 
         if verbose:
             print("\n------------------------------------------")
@@ -144,7 +151,6 @@ class Model:
     def __process_output(self, tstart, verbose):
         """
         Process the output of TGEC model calculation and read the output file if needed
-        :param output: output messages printed to standard output
         :param tstart: time of calculation start
         :param verbose: if true, additional information is printed
         """
@@ -176,9 +182,9 @@ class Model:
 
         # TODO: treat when there is an error
 
-    def setup_com_file(self, setup=None, parameters=None, settings=None, verbose=True):
+    def setup_model_params(self, setup=None, parameters=None, settings=None, verbose=True):
         """
-        Update model parameters from the .com file with the parameters of the JSON file
+        Update model parameters from the tgec files with the parameters of the JSON file
         or following the update of the optimization process
         :param setup: optimization setup from the JSON file
         :param parameters: optimization parameters from the JSON file
@@ -186,7 +192,7 @@ class Model:
         :param verbose: print details option (default=True)
         """
         if setup is None and (parameters is None or settings is None):
-            raise NOCError("Model.setup_com_file must be called with setup or, parameters and settings provided")
+            raise NOCError("Model.setup_model_params must be called with setup or, parameters and settings provided")
         elif setup is not None:
             parameters = setup.parameters
             settings = setup.settings
@@ -210,7 +216,8 @@ class Model:
             if found and verbose:
                 print(f"{p.name.upper()} = {p.value:8g}")
             if not found:
-                raise NOCError(f"Error in NOC/setup_com_file: free parameter '{p.name}' not found in the .com file")
+                raise NOCError(
+                    f"Error in NOC/setup_model_params: free parameter '{p.name}' not found in the TGEC files")
 
         # We update the start age for the .com file according to the model settings in the JSON file
         # or to the update in the optimization process
@@ -272,7 +279,7 @@ class Model:
         Calculate Y0 or [Z/X]0 from the primitive abundance and the enrichment parametrized in the model settings
         in the JSON file
         :param y0: Initial helium abundance
-        :param zsx0: Initial Z over X abundance
+        :param zox0: Initial Z over X abundance
         :param verbose: print details option (default=True)
 
         :return: y0 and zox0 updated
@@ -325,7 +332,7 @@ class Model:
 
     def read_output(self, verbose=True):
         """
-        Read the output .in and .g evol file
+        Read the output .in, .g, .ab and .zc evol file
         :param verbose: If True, print some details.
         """
         in_file = self.params.model_name + '.in'
@@ -443,6 +450,7 @@ class Model:
 
         self.dict_output = {
             "age": self.age,
+            "mass": self.mstar,
             "logg": self.logg,
             "logteff": self.logteff,
             "teff": self.teff,
@@ -460,21 +468,19 @@ class Model:
             "largesep": self.large_sep
         }
 
-    def tgec2pulse(self):
+    def read_struct_file(self, verbose=True):
         """
-        Convert TGEC output files to a Pulse input file
+        Read the etoile_mo, etoile_ft and etoile_ab instantaneous output files
+        :param verbose: If True, print some details.
         """
         files_pattern = ["etoile_mo.0?????", "etoile_ft.0?????", "etoile_ab.0?????"]
         files = []
-        # Initialization of static variables
-        rmass, rdens, rray, rtemp, rhot, hp, n2mu, xpress, delrad, delad, gradthermreal, gamma1, abond4, vmu, deltamux \
-            = [np.array([], float) for _ in range(15)]
+
         sigma = 5.669e-9
         boltz = 1.3806e-16
         avo = 6.0221e23
         clum = 2.99793e10
         constant = 4 * sigma / (3 * clum * avo * boltz)
-        nlayers = 0
 
         for pattern in files_pattern:
             path = self.name + '/' + pattern
@@ -482,71 +488,204 @@ class Model:
         # Filtering of files ending with '000000' we don't want to read
         files = [file for file in files if not file.endswith('000000')]
         for file in files:
-            print(f"Reading {file}...")
+            if verbose:
+                print(f"Reading {file}...")
             with open(file, "r") as f:
                 content = f.readlines()
 
-            nlayers = len(content)
+            self.nlayers = len(content)
 
             # Reading the etoile_mo file
             # if file.startswith('etoile_mo'):
             if 'etoile_mo' in file:
-                rmass = extract_column(content, 2)
-                rdens = extract_column(content, 3)
-                rray = extract_column(content, 4)
-                rtemp = extract_column(content, 8)
-                rhot = extract_column(content, 11)
-                hp = extract_column(content, 15)
-                n2mu = extract_column(content, 25)
+                self.rmass = extract_column(content, 2)
+                self.rdens = extract_column(content, 3)
+                self.rray = extract_column(content, 4)
+                self.xpress = extract_column(content, 7)
+                self.rtemp = extract_column(content, 8)
+                self.rhot = extract_column(content, 11)
+                self.hp = extract_column(content, 15)
+                self.n2mu = extract_column(content, 25)
 
             # Reading the etoile_ft file
             # if file.startswith('etoile_ft'):
             if 'etoile_ft' in file:
-                xpress = extract_column(content, 2)
-                delrad = extract_column(content, 5)
-                delad = extract_column(content, 6)
-                gradthermreal = extract_column(content, 7)
-                gamma1 = extract_column(content, 14)
+                self.delrad = extract_column(content, 5)
+                self.delad = extract_column(content, 6)
+                self.gradthermreal = extract_column(content, 7)
+                self.gamma1 = extract_column(content, 14)
 
             # Reading the etoile_ab file
             # if file.startswith('etoile_ab'):
             if 'etoile_ab' in file:
-                abond4 = extract_column(content, 3)
-                vmu = extract_column(content, 23)
-                deltamux = extract_column(content, 24)
+                self.abond4 = extract_column(content, 3)
+                self.vmu = extract_column(content, 23)
+                self.deltamux = extract_column(content, 24)
+
+        if verbose:
+            print("Done.")
 
         # print(n2mu)
-        itypezone = np.array([1 if n2mu[i] < 0 else 0 for i in range(nlayers)])
-        rhot = np.array([-element for element in rhot])
-        xkhirho = gamma1 / (1 + gamma1 * rhot * delad)
-        xkhitemp = rhot * xkhirho
+        self.itypezone = np.array([1 if self.n2mu[i] < 0 else 0 for i in range(self.nlayers)])
+        self.rhot = np.array([-element for element in self.rhot])
+        self.xkhirho = self.gamma1 / (1 + self.gamma1 * self.rhot * self.delad)
+        self.xkhitemp = self.rhot * self.xkhirho
 
-        xlogQ = np.array([np.log(1 - rmass[i] / rmass[0]) if rmass[i] != rmass[0] else 0. for i in range(nlayers)])
-        mode = np.array([1 for _ in range(nlayers)])
+        self.xlogQ = np.array([np.log(1 - self.rmass[i] / self.rmass[0]) if self.rmass[i] != self.rmass[0] else 0.
+                               for i in range(self.nlayers)])
+        self.mode = np.array([1 for _ in range(self.nlayers)])
 
-        Bledoux = -(hp * deltamux / xkhitemp)/(1. + constant * rtemp**3. * vmu / rdens)
+        self.Bledoux = -(self.hp * self.deltamux / self.xkhitemp) / (
+                1. + constant * self.rtemp ** 3. * self.vmu / self.rdens)
 
         # rnorm = rray/rray[0]
 
         # Calculation of real thermic gradient
-        for i in range(nlayers):
-            if itypezone[i] == 1:
-                gradthermreal[i] = delad[i]
+        for i in range(self.nlayers):
+            if self.itypezone[i] == 1:
+                self.gradthermreal[i] = self.delad[i]
             else:
-                if gradthermreal[i] > delrad[i] or gradthermreal[i] < 0:
+                if self.gradthermreal[i] > self.delrad[i] or self.gradthermreal[i] < 0:
                     # tmp = gradthermreal[i]
-                    gradthermreal[i] = delrad[i]
+                    self.gradthermreal[i] = self.delrad[i]
 
-        columns = np.column_stack((np.arange(1, nlayers+1, dtype=int), rray[::-1], rmass[::-1], rdens[::-1],
-                                   xpress[::-1], rtemp[::-1], xkhirho[::-1], xkhitemp[::-1], gradthermreal[::-1],
-                                   delad[::-1], abond4[::-1], Bledoux[::-1], xlogQ[::-1], mode[::-1], itypezone[::-1]))
+    def tgec2pulse(self):
+        """
+        Convert TGEC output files to a Pulse input file
+        """
+        self.read_struct_file(verbose=self.verbose)
+        columns = np.column_stack((np.arange(1, self.nlayers + 1, dtype=int), self.rray[::-1], self.rmass[::-1],
+                                   self.rdens[::-1], self.xpress[::-1], self.rtemp[::-1], self.xkhirho[::-1],
+                                   self.xkhitemp[::-1], self.gradthermreal[::-1], self.delad[::-1], self.abond4[::-1],
+                                   self.Bledoux[::-1], self.xlogQ[::-1], self.mode[::-1], self.itypezone[::-1]))
 
         # Write variables in Pulse input file
         with open(self.seismic.pulse_input, 'w') as f:
             f.write("format: 1\n")
-            f.write(f"{nlayers:>5d} layers\n")
+            f.write(f"{self.nlayers:>5d} layers\n")
             np.savetxt(f, columns, fmt='%5d   %18.10e %18.10e %18.10e %18.10e %18.10e %18.10e %18.10e %18.10e %18.10e '
                                        '%18.10e %18.10e %18.10e %3d %3d')
+
+    def tgec2amdl(self, bv=False):
+        """
+        Convert TGEC output files to an Adipls input file
+
+        :param bv: if True, the Brunt-Vaisala frequency is computed numerically,
+        otherwise it is taken from the TGEC model
+
+        :return: Adipls input data: global data and structure
+        """
+        self.read_struct_file(verbose=self.verbose)
+        data = np.zeros(8)
+        aa = np.zeros((6, self.nlayers))
+
+        # Mass
+        data[0] = self.mass[-1]
+        # Radius
+        data[1] = self.rad[-1]
+        # Central pressure
+        data[2] = self.xpress[self.nlayers - 1]
+        # Central density
+        data[3] = self.rdens[self.nlayers - 1]
+        # -(d2p/dx^2)/p/Gamma1 at the center
+        # dp = np.diff(self.xpress, 1)
+        # dr = np.diff(self.rray, 1)
+        # d2podr2 = np.diff(dp, 1)/np.diff(dr, 1)
+        # data[4] = -(d2podr2[-1] * data[1]**2)/(self.gamma1[self.nlayers - 1] * data[2])
+        x = self.rray[:self.nlayers - 1] / self.rad[-1]
+        y = self.xpress[:self.nlayers - 1]
+        tck = interpolate.splrep(x[::-1], y[::-1], s=0)
+        data[4] = - interpolate.splev(x, tck, der=2)[-1]/(self.gamma1[self.nlayers - 1] * data[2])
+        # -(d2dho/dx^2)/rho at the center
+        # drho = np.diff(self.rdens, 1)
+        # d2rhoodr2 = np.diff(drho, 1)/np.diff(dr, 1)
+        # data[5] = -(d2rhoodr2[-1] * data[1]**2)/data[3]
+        y = self.rdens[:self.nlayers - 1]
+        tck = interpolate.splrep(x[::-1], y[::-1], s=0)
+        data[5] = - interpolate.splev(x, tck, der=2)[-1]/data[3]
+
+        data[6] = -1.0
+        data[7] = 0.0
+
+        # x = r/R
+        aa[0, :self.nlayers - 1] = self.rray[:self.nlayers - 1] / self.rad[-1]
+        # (m/M)/x^3
+        aa[1, :self.nlayers - 1] = (self.rmass[:self.nlayers - 1] / self.mass[-1]) / ((aa[0, :self.nlayers - 1]) ** 3)
+        # G*m*rho/ (Gamma1*p*r)
+        aa[2, :self.nlayers - 1] = (ggrav * self.rmass[:self.nlayers - 1] * self.rdens[:self.nlayers - 1] /
+                                    (self.gamma1[:self.nlayers - 1] * self.xpress[:self.nlayers - 1] *
+                                     self.rray[:self.nlayers - 1]))
+        # Gamma1
+        aa[3, :self.nlayers - 1] = self.gamma1[:self.nlayers - 1]
+        # Brunt-Vaisala frequency
+        if bv:
+            # compute numerically
+            y = np.log(self.rdens[:-1])
+            x = np.log(self.rray[:-1])
+            tck = interpolate.splrep(x[::-1], y[::-1], s=0)
+            aa[4, :self.nlayers - 1] = - aa[2, :self.nlayers - 1] - interpolate.splev(x, tck, der=1)
+        else:
+            aa[4, :self.nlayers - 1] = self.n2mu[:self.nlayers - 1]
+        # U = 4pi*rho*r^3/m
+        aa[5, :self.nlayers - 1] = (4.0 * np.pi * self.rdens[:self.nlayers - 1] * self.rray[:self.nlayers - 1] ** 3 /
+                                    self.rmass[:self.nlayers - 1])
+
+        # at the center, asymptotic values:
+        aa[0, self.nlayers-1] = 0.0
+        aa[1, self.nlayers-1] = 4.0 * np.pi * data[1] ** 3 * data[3] / (3.0 * data[0])
+        aa[2, self.nlayers-1] = 0.0
+        # Gamma1
+        aa[3, self.nlayers-1] = self.gamma1[self.nlayers - 1]
+        aa[4, self.nlayers-1] = 0.0
+        aa[5, self.nlayers-1] = 3.0
+
+        # data must be filled from the center up to the surface
+        if aa[0, 0] > aa[0, self.nlayers-1]:
+            aa = aa[:, ::-1]
+
+        return data, aa
+
+    def write_amdl(self, filename, data, aa, record_maker=4, endian='@'):
+        """
+        Write ADIPLS's .amdl input file from TGEC structure model
+        :param filename: name of the output file
+        :param data: global TGEC model parameters
+        :param aa: TGEC model structure variables
+        :param record_maker: to be set depending on the way ADIPLS is compiled, look at the makefile and the compiler
+                             options. Default:4
+        :param endian: to be set depending on the system architecture. Default:'@'
+
+        :return: True if successful, False otherwise
+        """
+        if record_maker == 4:  # 32 bits
+            HEADER_PREC = 'i'
+        elif record_maker == 8:  # 64 bits
+            HEADER_PREC = 'l'
+        else:
+            print('Error in write_amdl: value of record_maker not handled')
+            return False
+
+        if record_maker > struct.calcsize("P"):
+            print("Error in write_amdl: record_maker not compatible with your architecture")
+            return False
+
+        with open(filename, 'wb') as f:
+            n = aa.shape[1]
+            nb = (aa.shape[0] * n + len(data) + 1) * 8
+
+            if aa[0, 0] > aa[0, n-1]:
+                B = (aa[:, ::-1]).transpose().flatten()
+            else:
+                B = aa.transpose().flatten()
+
+            f.write(struct.pack(endian + HEADER_PREC, nb))
+            f.write(struct.pack(endian + 'ii', 1, n))
+            for s in data:
+                f.write(struct.pack(endian + 'd', s))
+            for s in B:
+                f.write(struct.pack(endian + 'd', s))
+
+        return True
 
     def clean_links(self):
         """

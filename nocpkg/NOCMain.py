@@ -33,7 +33,7 @@ You should have received a copy of the GNU General Public License
 along with this code.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-__version__ = "1.0"
+__version__ = "1.1"
 
 
 class NOCMain:
@@ -124,7 +124,7 @@ class NOCMain:
 
     def noc_init(self, resume=False):
 
-        print("\n\n---------- Initialisation ----------\n\n")
+        print("\n\n---------- Initialization ----------\n\n")
 
         self.model = Model(self.model_name, self.setup, verbose=self.verbose)
 
@@ -180,11 +180,11 @@ class NOCMain:
         Create an initial model taking into account the .com file and the settings in the JSON file,
         and update the .com file according to the JSON file
         """
-        self.model.setup_com_file(setup=self.setup)
+        self.model.setup_model_params(setup=self.setup)
 
         self.model.finished = False
 
-        self.model.params.update_com(self.model.age_model)
+        self.model.params.update_params(self.model.age_model)
 
     def get_teff(self):
         """

@@ -177,8 +177,8 @@ class ComputeOptimal:
 
         print(50*'*')
         print(f'Model {name}')
-        model.setup_com_file(parameters=parameters, settings=self.settings)
-        model.params.update_com(model.age_model)
+        model.setup_model_params(parameters=parameters, settings=self.settings)
+        model.params.update_params(model.age_model)
 
         # Empty output buffer
         sys.stdout.flush()
@@ -206,12 +206,21 @@ class ComputeOptimal:
         # else, we calculate the eigenfrequencies
         oscprog = self.settings['modes']['oscprog']
 
+        if self.verbose:
+            print(f"Computing model frequencies at age {model.age_model/1e6} Myr with {oscprog}... ")
+
         if oscprog == 'pulse':
             model.tgec2pulse()
-            if self.verbose:
-                print(f"Computing model frequencies at age {model.age_model/1e6} Myr... ")
-            model.run.run_pulse(verbose=self.verbose, log=True)
+            model.run.run_pulse(log=True)
         # TODO: add adipls commands
+        elif oscprog == 'adipls':
+            data, aa = model.tgec2amdl(bv=True)
+            # data, aa = model.tgec2amdl()
+
+            if not model.write_amdl(f"{name}.amdl", data, aa):
+                raise NOCError("Unable to build the amdl file")
+
+            model.run.run_adipls()
 
         return self.__get_outputs(model, parameters)
 
