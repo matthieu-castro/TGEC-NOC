@@ -7,8 +7,6 @@ import sys
 import time
 import traceback
 
-import numpy as np
-
 from nocpkg.ComputeOptimal import ComputeOptimal
 from tgec.Model import Model
 from nocpkg.Setup import Setup

@@ -1,5 +1,3 @@
-import math
-
 import numpy as np
 
 from nocpkg.Seismic import Seismic

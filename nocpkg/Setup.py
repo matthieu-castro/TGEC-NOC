@@ -71,7 +71,6 @@ class Setup:
     def __read_seismic_constraints(self, jsonseismic_constraints):
         """
         Read seismic constraints from JSON file passed in parameter
-        :param file: JSON file to read
         :return: SeismicConstraints object
         """
         filename = jsonseismic_constraints.get('file').strip()
