@@ -31,7 +31,7 @@ You should have received a copy of the GNU General Public License
 along with this code.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-__version__ = "1.2"
+__version__ = "1.1"
 
 
 class NOCMain:
@@ -89,18 +89,17 @@ class NOCMain:
             raise
 
         tend = time.time()
-        dy, hr, mn, sc = time.gmtime(tend - tstart)[2:6]
+        hr, mn, sc = time.gmtime(tend - tstart)[3:6]
         print(f"Finished at {time.asctime()}")
-        if dy == 1:
-            if hr == 0:
-                if mn == 0:
-                    print(f"\tTime: {sc:02.2f}")
-                else:
-                    print(f"\tTime: {mn:02d}m {sc:02.2f}s")
+        if hr == 0:
+            if mn == 0:
+                print(f"\tTime: {sc:02.2f}")
             else:
-                print(f"\tTime: {hr:d}h {mn:02d}m {sc:02.2f}s")
+                print(f"\tTime: {mn:02d}m {sc:02.2f}s")
         else:
-            print(f"\tTime: {dy-1:d}d {hr:d}h {mn:02d}m {sc:02.2f}s")
+            print(f"\tTime: {hr:d}h {mn:02d}m {sc:02.2f}s")
+
+
 
         os.chdir(cwd)
         sys.stdout.flush()
@@ -116,8 +115,6 @@ class NOCMain:
             sys.exit(1)
 
         self.verbose = self.args.verbose
-
-        self.multiproc = self.args.multiproc
 
         # if self.args.guess:
         #     guess = Guess(self.args.name.strip())
@@ -147,8 +144,7 @@ class NOCMain:
         # print("Teff is among targets")
 
     def noc_run(self):
-        return ComputeOptimal(self.name, self.setup, verbose=self.verbose, debug=self.args.debug,
-                              multiproc=self.multiproc)
+        return ComputeOptimal(self.name, self.setup, verbose=self.verbose, debug=self.args.debug)
 
     def create_wd(self):
         """
@@ -196,7 +192,7 @@ class NOCMain:
         teff = -1.0
         for t in self.targets:
             if t.name == 'log_teff':
-                teff = 10.0**t.value
+                teff = 10.0**(t.value)
             elif t.name == 'teff':
                 teff = t.value
         if teff < 0:
