@@ -20,7 +20,6 @@ def convert_value(value):
 
 
 class Parameters:
-
     # Create a regular expression to find each parameter in the .com file
     pattern = r'\b(\w+)\s*=(\s*)([+-]?\d+(?:\.\d*)?(?:[dDeE][+-]?\d+)?|[Tt]|[Ff])\b'
 
@@ -53,10 +52,10 @@ class Parameters:
         # Initial composition
         self.y0 = self.params_dict['YINI']
         if self.params_dict['FESURHINI'] == 9:
-            self.x0 = (1 - self.y0)/(1 + self.params_dict['ZOXINI'])
+            self.x0 = (1 - self.y0) / (1 + self.params_dict['ZOXINI'])
             self.z0 = 1 - self.x0 - self.y0
         else:
-            self.z0 = 0.0181*(10 ** self.params_dict['FESURHINI'])
+            self.z0 = 0.0181 * (10 ** self.params_dict['FESURHINI'])
             self.x0 = 1 - self.y0 - self.z0
         self.zox0 = self.z0 / self.x0
 
@@ -66,9 +65,21 @@ class Parameters:
         else:
             self.diffusion = True
 
+        # Rotation
+        if self.params_dict['IDIFTY'] == 16 and self.params_dict['IDIFTY'] == 4:
+            self.rot = True
+        else:
+            self.rot = False
+
+        # Initial abundances
+        if self.params_dict['IABOND'] == 0:
+            self.abond = 'GN93'
+        elif self.params_dict['IABOND'] == 2:
+            self.abond = 'Asp09'
+
     def read_params(self):
         """
-        Reads the model physics input parameters in the .com file
+        Reads the model physics input parameters in tgec input files
         """
 
         print(f"Reading {self.com_file}... ", end='')
@@ -85,40 +96,59 @@ class Parameters:
             self.params_dict[key] = convert_value(value)
 
         print('Done')
+        # print(f"idifty = {self.params_dict['IDIFTY']}")
 
-    def update_com(self, age_model):
+        if self.params_dict['IDIFTY'] == 20:
+            print(f"Reading circmerid.dat...", end='')
+            with open('circmerid.dat', 'r') as f:
+                content = f.readlines()
+
+            keys = ['alphah', 'coeffdeff', 'rotadiff', 'fradia', 'tach', 'Dbcz', 'Delta']
+            for i in range(len(keys)):
+                self.params_dict[keys[i]] = convert_value(content[i][:8].rstrip())
+
+            print('Done')
+
+    def update_params(self, age_model, file=None):
         """
-        Update the .com file with the model parameters
+        Update tgec files with model parameters
         :param age_model: age of the optimized model
+        :param file: input TGEC file to update
         """
-        print(f"Updating {self.com_file}... ", end='')
-        with open(self.com_file, 'r+') as f:
+        if file is None:
+            file = self.com_file
+        print(f"Updating {file}... ", end='')
+        with open(file, 'r+') as f:
             content = f.read()
             matches = re.findall(self.pattern, content)  # List the parameters in .com file
             # update of the model name
-            self.model_name = f"e{int(self.params_dict['GMS']*100):03d}" \
-                              f"{'p' if self.params_dict['FESURHINI']>=0 else 'm'}" \
-                              f"{int(abs(self.params_dict['FESURHINI']*100)):03d}"
+            self.model_name = f"e{int(self.params_dict['GMS'] * 100):03d}" \
+                              f"{'p' if self.params_dict['FESURHINI'] >= 0 else 'm'}" \
+                              f"{int(abs(self.params_dict['FESURHINI'] * 100)):03d}"
             content = self.model_name + content[8:]
             # update of the printed model number corresponding to the optimized model.
             # Needed for the frequencies calculation
-            deltat = min(self.params_dict['DZEITM'], self.params_dict['DZEIT'])
-            self.params_dict['IPRN'] = round(age_model/(deltat/(60*60*24*365.25)))
+            deltat = self.params_dict['DZEIT']
+            self.params_dict['IPRN'] = round(age_model / (deltat / (60 * 60 * 24 * 365.25)))
             self.params_dict['NZMOD'] = self.params_dict['IPRN'] + 1
             # update the suffix of evolution files
-            content = content[:9] + f"00001-{self.params_dict['NZMOD']:05d}" + content[20:]
+            content = content[:14] + f"-{self.params_dict['NZMOD']:05d}" + content[20:]
             # update of the parameters of the model
             for match in matches:
                 key = match[0]
                 spaces = len(match[1])
                 value = match[2]
                 # Find if the parameter has been updated
-                if convert_value(value) != self.params_dict[key]:
+                if key in self.params_dict and convert_value(value) != self.params_dict[key]:
                     # Pattern to find the parameter in the file
-                    pattern = re.compile(f"{key:<{len(key)}}={value:>{spaces+len(value)}}")
+                    pattern = re.compile(f"{key:<{len(key)}}={value:>{spaces + len(value)}}")
+                    # print(pattern)
+                    # print(re.search(pattern, content))
                     # Text with updated value to substitute
-                    new_value = self.params_dict[key]
-                    subs = f"{key:<{len(key)}}={new_value:>{spaces+len(str(new_value))}}"
+                    new_value = str(self.params_dict[key])
+                    new_value = re.sub('e', 'D', new_value)
+                    subs = f"{key:<{len(key)}}={new_value:>{spaces + len(str(new_value))}}"
+                    # print(subs)
                     # Substitution of the updated value in the .com file
                     content = pattern.sub(subs, content)
             f.seek(0)
@@ -127,5 +157,20 @@ class Parameters:
 
         print('Done')
 
+        if self.params_dict['IDIFTY'] == 20:
+            print(f"Reading circmerid.dat...", end='')
+            with open('circmerid.dat', 'r+') as f:
+                content = f.readlines()
+                keys = ['alphah', 'coeffdeff', 'rotadiff', 'fradia', 'tach', 'Dbcz', 'Delta']
+                for i in range(len(keys)):
+                    if convert_value(content[i][:8].rstrip()) != self.params_dict[keys[i]]:
+                        new_value = self.params_dict[keys[i]]
+                        content[i] = f"{new_value:<8.3g}" + content[i][8:]
+                        # content[i][:8] = new_value
 
-                    
+                f.seek(0)
+                f.truncate()
+                for i in range(len(content)):
+                    f.write(content[i])
+
+            print('Done')

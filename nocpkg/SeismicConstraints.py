@@ -1,5 +1,3 @@
-import math
-
 import numpy as np
 
 from nocpkg.Seismic import Seismic
@@ -11,8 +9,8 @@ class SeismicConstraints:
     Class gathering seismic constraints of the optimization
     """
     matching = 'frequency'
-    n = np.empty(0, dtype=np.int)
-    l = np.empty(0, dtype=np.int)
+    n = np.empty(0, dtype=np.int32)
+    l = np.empty(0, dtype=np.int32)
     nu = np.empty(0)
     sigma = np.empty(0)
     y = np.empty(0)

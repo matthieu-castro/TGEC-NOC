@@ -22,6 +22,7 @@ class Setup:
         self.seismic_constraints = SeismicConstraints('')
         self.settings = {}
         self.calc_freqs = False
+        self.lsep_target = None
         if json_file is not None:
             with open(json_file) as f:
                 try:
@@ -70,7 +71,6 @@ class Setup:
     def __read_seismic_constraints(self, jsonseismic_constraints):
         """
         Read seismic constraints from JSON file passed in parameter
-        :param file: JSON file to read
         :return: SeismicConstraints object
         """
         filename = jsonseismic_constraints.get('file').strip()
@@ -204,19 +204,30 @@ class Setup:
         :return: dictionary of options
         """
         start = jsonmodels.get('start', 'zams').strip().lower()  # Age of the model starting, zams or pms
-        dy_dz = jsonmodels.get('dy_dz')  # Galactic variation of Y relative to Z
-        yp = jsonmodels.get('yp')  # Primitive Y
-        zp = jsonmodels.get('zp')  # Primitive Z
+        dy_dz = jsonmodels.get('dy_dz', 0)  # Galactic variation of Y relative to Z
+        yp = jsonmodels.get('yp', 0)  # Primitive Y
+        zp = jsonmodels.get('zp', 0)  # Primitive Z
+        rot = bool(jsonmodels.get('rot', False))  # Rotation considered
+        dlt = jsonmodels.get('dlt', 0)  # Disk locking time
+        dlp = jsonmodels.get('dlp', 0)  # Disk locking period in days
+        k = jsonmodels.get('braking', 0)  # Magnetic braking constant
         retry = jsonmodels.get('retry', 5)
 
         if start not in ['zams', 'pms']:
             raise NOCError("Model start can only take the value 'zams' or 'pms'.")
+
+        if rot and (dlt is None or k is None):
+            raise NOCError("Rotation considered should provide disk-locking time and magnetic braking constant.")
 
         return {
             'dy_dz': float(dy_dz),
             'yp': float(yp),
             'zp': float(zp),
             'start': start,
+            'rot': rot,
+            'dlt': float(dlt),
+            'dlp': float(dlp),
+            'k': float(k),
             'retry': int(retry)
         }
 
@@ -249,8 +260,12 @@ class Setup:
         self.targets = [Target(elem) for elem in jsontargets]
         # If numax or largesep are in Targets, we must calculate the frequencies of the model
         # targets_name = [t.name for t in self.targets]
-        if 'largesep' in [t.name for t in self.targets]:
-            self.calc_freqs = True
+        # if 'largesep' in [t.name for t in self.targets]:
+        #     self.calc_freqs = True
+        for t in self.targets:
+            if t.name == 'largesep':
+                self.calc_freqs = True
+                self.lsep_target = t.value
         self.__get_ntargs()  # Calculate number of targets
 
         # process settings #

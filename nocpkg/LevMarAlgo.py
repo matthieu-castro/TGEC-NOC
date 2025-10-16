@@ -5,12 +5,10 @@ import numpy as np
 
 from nocpkg.utils import NOCError
 
-multiproc = False
-
 
 class LevMar:
 
-    def __init__(self, setup, name, y, sigma, covar, y_name, log_file):
+    def __init__(self, setup, name, y, sigma, covar, y_name, log_file, multiproc=False):
         """
         Class that implements the Levenberg-Marquardt algorithm
         :param setup: optimization setup read from the JSON file
@@ -20,6 +18,7 @@ class LevMar:
         :param covar: covariance matrix
         :param y_name: name of classical target values
         :param log_file: log file
+        :param multiproc: run calculation in parallel on multiprocessors (default=False)
         """
         self.setup = setup
         self.parameters = setup.parameters
@@ -49,6 +48,7 @@ class LevMar:
         self.next_optimal = []
 
         # Initialization of multiprocessing
+        self.multiproc = multiproc
         self.nproc = 0
         self.proc_index = {}
         self.processes, self.parents, self.childs = [[] for _ in range(3)]
@@ -87,7 +87,7 @@ class LevMar:
         self.levmar_init(levmar_args)
 
         continued = 1
-        it = 0
+        it = 1
         msg = ''
         error = False
 
@@ -113,7 +113,6 @@ class LevMar:
             # Singular value decomposition
             U, s, V = np.linalg.svd(alpha)
             text += "\ns = [" + " ".join('{:>10}'.format('{:>8g}'.format(i)) for i in s) + "]\n"
-            # text += f"epsilon = {self.eps}\n"
 
             if min(np.abs(s)) > self.eps:
                 cdtn = max(np.abs(s))/min(np.abs(s))  # condition number
@@ -130,6 +129,7 @@ class LevMar:
             # if self.verbose:
             #     print(text)
 
+            # Upadte the parameters
             alpha = np.linalg.inv(np.matrix(alpha))
             dparam = np.array((alpha*np.matrix(beta.reshape((self.nparams, 1)))).flatten())[0]
             old_param = np.array([p.value for p in self.new_param])
@@ -161,7 +161,17 @@ class LevMar:
             # Relative variation of chi2
             dchi2 = (chi2n - chi2i)/chi2i
             # We check if we continue the iterations or if the optimal model has been found
-            continued = (it < self.maxiter) & (abs(dchi2) > self.ftol) & (chi2n > self.chi2min)
+            continued = (it < self.maxiter) and (abs(dchi2) > self.ftol) and (chi2n > self.chi2min)
+            # If we reached a convergence (continued = 0), we check the relative distance to minimum/maximum (RDM) to avoid saddle points
+            #if continued == 0:
+            #    continued = self.__checkRDM(alpha, beta)
+            # If we reached a convergence (continued = 0), we ensure the Hessian matrix is positive definite to avoid saddle points
+            # If not, we continue the iteration
+            if continued == 0:
+                eigvals = np.linalg.eigvals(alpha)
+                if np.any(eigvals < 0):
+                    print(f"Hessian matrix is not positive definite: eigenvalues = {eigvals}, we continue the iteration.")
+                    continued = 1
             if chi2n >= chi2i:
                 self.lamb = self.lamb*10.0
                 text += "Leaving the parameters unchanged:\n"
@@ -204,16 +214,19 @@ class LevMar:
         alpha, beta = self.levmar_coef(self.current_optimal, self.nparams, self.jacob, self.lamb)
         text += "Hessian matrix:\n"
         text += self.hessian2str(alpha, self.parameters)
+            
 
         # Singular value decomposition
         U, s, V = np.linalg.svd(alpha)
         text += "\ns = [" + " ".join('{:>10}'.format('{:>8g}'.format(i)) for i in s) + "]\n"
 
         print(text)
+        self.lgf.write(text)
+        self.lgf.flush()
         text = ""
 
         if min(np.abs(s)) > self.eps:
-            cdtn = max(np.abs(s))/min(np.abs(s)) # condition number
+            cdtn = max(np.abs(s))/min(np.abs(s))  # condition number
             text += f"Final Hessian matrix conditioning number = {cdtn:8g}\n"
         else:
             text_err = "Error in NOC/levmar: there is a null eigenvalue in the Hessian matrix, it cannot be inverted"
@@ -221,8 +234,7 @@ class LevMar:
             self.lgf.write(text)
             raise NOCError(text_err)
         # We may need to truncate the matrix
-        limit = max(s)/self.hess_cdtnb_thr
-        truncated = False
+        limit = max(s)/self.cov_cdtnb_thr
         # Diagonal matrix that contain the singular values (eigenvalues)
         Si = np.zeros((self.nparams, self.nparams))
         truncated = [s[i] < limit for i in range(self.nparams)]
@@ -235,11 +247,15 @@ class LevMar:
             msg += text_warn
             text += text_warn
 
-        # Inverse matrix A^-1 = V^t S^-1 U^t
-        alpha = np.dot(np.transpose(V), np.dot(Si, np.transpose(U)))
+        text += "\n"
+        # Inverse matrix A^-1 = V^t S^-1 U^t is the covariance matrix
+        # covar = np.dot(np.transpose(V), np.dot(Si, np.transpose(U)))
+        covar = V.T @ Si @ U.T
+        text += "Covariance matrix:\n"
+        text += self.hessian2str(covar, self.parameters)
         # Calculation of the errors on optimized parameters
         for i in range(self.nparams):
-            self.parameters[i].sigma = np.sqrt(alpha[i, i])
+            self.parameters[i].sigma = np.sqrt(abs(covar[i, i]))
 
         text += "\nFinal values:\n"
         text += '\n'.join(f"{p.name:10} = {p.value:8f} +/- {p.sigma:8f}" for p in self.parameters) + '\n'
@@ -405,7 +421,7 @@ class LevMar:
         error = False
 
         # Calculation of the central model and the shifted models
-        if multiproc:
+        if self.multiproc:
             self.__add_process(0, self.func_shell, parameters, levmar_args)
             self.nproc += 1
             for i, p in enumerate(self.parameters):
@@ -453,6 +469,9 @@ class LevMar:
         for i, p in enumerate(self.parameters):
             mask_nan = np.argwhere(np.isfinite(shift_model[:, j]))
             jacob_tmp = (shift_model[:, j] - center_model[:])/steps[i]
+            # # if p.name == 'age':
+            # print(f"p = {p.name}: jacob_tmp = {jacob_tmp}, shift_model[:, {j}] = {shift_model[:, j]}, "
+            #       f"center_model = {center_model[:]}, steps = {steps[i]}")
             self.__reorder_outputs(jacob_tmp[mask_nan].flatten(), jacob[i, :])
             # self.__reorder_outputs(np.compress(mask_nan, jacob_tmp), jacob[i, :])
             j += 1
@@ -484,8 +503,11 @@ class LevMar:
                 for l in range(self.ny):
                     for m in range(self.ny):
                         tmp += 0.5*self.W[l, m] * (jacob[i, l]*jacob[j, m] + jacob[i, m]*jacob[j, l])
+                        # if tmp == 0 and l == m:
+                        #      print(f"W[{l}, {m}] = {self.W[l, m]}, jacob[{i}, {l}] = {jacob[i, l]}"
+                        #            f", jacob[{j}, {m}] = {jacob[j, m]}, jacob[{i}, {m}] = {jacob[i, m]}"
+                        #            f", jacob[{j}, {l}] = {jacob[j, l]}")
                 alpha[i, j] = tmp * (1.0 + lamb*(i == j))
-                # print(f"alpha[{i},{j}] = {alpha[i,j]}")
 
         for i in range(1, nparams):
             for j in range(i):
@@ -588,7 +610,7 @@ class LevMar:
 
         # We create a pipe of processes to launch a parallel computation of models
         pipe = multiprocessing.Pipe()
-        self.proc_index[f"{parameters[iparam-1].name}"] = self.nproc
+        self.proc_index[f"{pname}"] = self.nproc
         self.parents.append(pipe[0])
         self.childs.append(pipe[1])
         self.processes.append(multiprocessing.Process(target=target_func, args=(self.func, parameters, func_args_tmp,
@@ -633,4 +655,18 @@ class LevMar:
         os.system(f"mv {model_refs['center'].name} {model_refs['center'].name}_opt")
         for model in model_refs['deriv'].values():
             os.system(f"rm -rf {model.name}")
-        # TODO: see how to write this function
+
+    def __checkRDM(self, alpha, beta):
+        """
+        Calculate the relative distance to minimum/maximum (RDM) criterion for convergence (doesn't work!!)
+        :param alpha: inverse of the Hessian matrix
+        :param beta: gradients vector
+        :return: true if the criterion is not fulfilled and the optimisation should continue,
+                 false otherwise
+        """
+        crit = np.sum(np.abs(np.asmatrix(beta).T * alpha.diagonal())) / self.nparams
+        if crit > 0.001:
+            print(f"RDM convergence criterion not fulfilled (crit={crit} > 0.001), we continue the iteration") 
+            return 1
+        else:
+            return 0

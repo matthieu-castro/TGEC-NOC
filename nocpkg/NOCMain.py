@@ -7,8 +7,6 @@ import sys
 import time
 import traceback
 
-import numpy as np
-
 from nocpkg.ComputeOptimal import ComputeOptimal
 from tgec.Model import Model
 from nocpkg.Setup import Setup
@@ -33,7 +31,7 @@ You should have received a copy of the GNU General Public License
 along with this code.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-__version__ = "1.0"
+__version__ = "1.2"
 
 
 class NOCMain:
@@ -91,17 +89,18 @@ class NOCMain:
             raise
 
         tend = time.time()
-        hr, mn, sc = time.gmtime(tend - tstart)[3:6]
+        dy, hr, mn, sc = time.gmtime(tend - tstart)[2:6]
         print(f"Finished at {time.asctime()}")
-        if hr == 0:
-            if mn == 0:
-                print(f"\tTime: {sc:02.2f}")
+        if dy == 1:
+            if hr == 0:
+                if mn == 0:
+                    print(f"\tTime: {sc:02.2f}")
+                else:
+                    print(f"\tTime: {mn:02d}m {sc:02.2f}s")
             else:
-                print(f"\tTime: {mn:02d}m {sc:02.2f}s")
+                print(f"\tTime: {hr:d}h {mn:02d}m {sc:02.2f}s")
         else:
-            print(f"\tTime: {hr:d}h {mn:02d}m {sc:02.2f}s")
-
-
+            print(f"\tTime: {dy-1:d}d {hr:d}h {mn:02d}m {sc:02.2f}s")
 
         os.chdir(cwd)
         sys.stdout.flush()
@@ -118,13 +117,15 @@ class NOCMain:
 
         self.verbose = self.args.verbose
 
+        self.multiproc = self.args.multiproc
+
         # if self.args.guess:
         #     guess = Guess(self.args.name.strip())
         #     sys.exit(1)
 
     def noc_init(self, resume=False):
 
-        print("\n\n---------- Initialisation ----------\n\n")
+        print("\n\n---------- Initialization ----------\n\n")
 
         self.model = Model(self.model_name, self.setup, verbose=self.verbose)
 
@@ -146,7 +147,8 @@ class NOCMain:
         # print("Teff is among targets")
 
     def noc_run(self):
-        return ComputeOptimal(self.name, self.setup, verbose=self.verbose, debug=self.args.debug)
+        return ComputeOptimal(self.name, self.setup, verbose=self.verbose, debug=self.args.debug,
+                              multiproc=self.multiproc)
 
     def create_wd(self):
         """
@@ -180,11 +182,11 @@ class NOCMain:
         Create an initial model taking into account the .com file and the settings in the JSON file,
         and update the .com file according to the JSON file
         """
-        self.model.setup_com_file(setup=self.setup)
+        self.model.setup_model_params(setup=self.setup)
 
         self.model.finished = False
 
-        self.model.params.update_com(self.model.age_model)
+        self.model.params.update_params(self.model.age_model)
 
     def get_teff(self):
         """
@@ -194,7 +196,7 @@ class NOCMain:
         teff = -1.0
         for t in self.targets:
             if t.name == 'log_teff':
-                teff = 10.0**(t.value)
+                teff = 10.0**t.value
             elif t.name == 'teff':
                 teff = t.value
         if teff < 0:

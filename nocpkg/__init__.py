@@ -6,7 +6,7 @@
 # from noc.Target import Target
 # from nocpkg.utils import *
 
-__version__ = '1.0'
+__version__ = '1.2'
 
 __requires__ = ['os', 're', 'sys', 'traceback', 'numpy', 'json']
 

@@ -7,9 +7,9 @@ class Seismic:
     """
     Calculation of the different seismic constraints from the frequencies table.
     """
-    n = np.empty(0, dtype=np.int)
-    l = np.empty(0, dtype=np.int)
-    lval = np.empty(0, dtype=np.int)
+    n = np.empty(0, dtype=np.int32)
+    l = np.empty(0, dtype=np.int32)
+    lval = np.empty(0, dtype=np.int32)
     nu = np.empty(0)
     sigma = np.empty(0)
     y = np.empty(0)
@@ -63,7 +63,8 @@ class Seismic:
         """
         nb_modes = modes.shape[0]
         if nb_modes > 0:
-            lval = np.unique(modes[:, 1])
+            #lval = np.unique(modes[:, 1])
+            lval = np.unique(self.l)
         else:
             lval = []
 
@@ -161,7 +162,8 @@ class Seismic:
             j = np.where(l == s)
             m = len(j[0])
             nb_l.append(m)
-            nb += m - 1
+            if m > 0:
+                nb += m - 1
 
         coef = np.zeros((nb, nb_f))
         yn = np.empty(nb)
@@ -173,7 +175,7 @@ class Seismic:
                 i = np.where(l == lval[k])[0]
                 for m in i[1:]:
                     for j in range(nb_f):
-                        # print('n['+str(j)+']='+str(n[j])+' , n['+str(m)+']='+str(n[m]))
+                        # print(f'n[{j}]={n[j]}, n[{m}]={n[m]}')
                         # print('l['+str(j)+']='+str(l[j])+' , lval['+str(k)+']='+str(lval[k]))
                         if n[j] == n[m] and l[j] == lval[k]:
                             coef[p, j] = 1.
@@ -192,7 +194,7 @@ class Seismic:
 
         return y, coef, yn
 
-    def d01(self):
+    def d01(self, **kwargs):
         """
         Calculate the small separations $d01 = nu_{n,0} - \frac{nu_{n-1,1} + nu_{n,1}}{2}$
         :return:  y, coef, yn

@@ -19,35 +19,35 @@ class Parameter:
         :param elem: Instance of JSON element from the 'parameter' field, read in the input JSON file.
         :type elem: <Object>
 
-        :member name: Name of the parameter.
-        :mtype name: str
+        member name: Name of the parameter.
+        mtype name: str
 
-        :member value: Value of the parameter
-        :mtype value: any
+        member value: Value of the parameter
+        mtype value: any
 
-        :member step: Step used to vary this parameter in the Levenberg-Marquardt algorithm.
-        :mtype step: float
+        member step: Step used to vary this parameter in the Levenberg-Marquardt algorithm.
+        mtype step: float
 
-        :member rate: Rate of modification of this parameter between two iterations of the
+        member rate: Rate of modification of this parameter between two iterations of the
             Levenberg-Marquardt algorithm.
-        :mtype rate: float
+        mtype rate: float
 
-        :member bounds: Bound that limit the possible values of the parameter.
-        :mtype bounds: list of float
+        member bounds: Bound that limit the possible values of the parameter.
+        mtype bounds: list of float
 
-        :member sigma: Standard deviation of this parameter. Defined for symmetry with the Target class.
+        member sigma: Standard deviation of this parameter. Defined for symmetry with the Target class.
             It is always set to -1 here
-        :mtype sigma: float
+        mtype sigma: float
 
-        :member evol: True if the parameter control the evolution
-        :mtype evol: bool
+        member evol: True if the parameter control the evolution
+        mtype evol: bool
 
-        :member seismic: True if the parameter control the modes
-        :mtype seismic: bool
+        member seismic: True if the parameter control the modes
+        mtype seismic: bool
 
-        :member is_input: This attribute is here to keep a symmetry with the Target class.
+        member is_input: This attribute is here to keep a symmetry with the Target class.
             It should always be False.
-        :mtype is_input: bool
+        mtype is_input: bool
         """
         if elem is not None:
             self.elem = elem

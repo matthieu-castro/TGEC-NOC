@@ -11,7 +11,7 @@ from tgec.Model import Model
 
 class ComputeOptimal:
 
-    def __init__(self, name, setup, verbose=False, debug=False):
+    def __init__(self, name, setup, verbose=False, debug=False, multiproc=False):
         """
         Launch the computation of an optimal model matching best the set of constraints, using the 
         Levenberg-Marquardt method
@@ -19,6 +19,7 @@ class ComputeOptimal:
         :param setup: setup of the optimization
         :param verbose: print details option (default=False)
         :param debug: run in debug mode (default=False)
+        :param multiproc: run calculation in parallel on multiprocessors (default=False)
         """
         self.name = name
         self.setup = setup
@@ -34,6 +35,7 @@ class ComputeOptimal:
 
         self.verbose = verbose
         self.debug = debug
+        self.multiproc = multiproc
         self.cwd = os.getcwd()
 
         self.log_file = self.name + '.log'
@@ -55,7 +57,8 @@ class ComputeOptimal:
             self.print_init_params()
             self.init_levmar()
             # Create the levmar instance through the __init__ method of the LevMar class
-            self.levmar = LevMar(self.setup, self.name, self.y, self.sigma, self.covar, self.y_name, self.lgf)
+            self.levmar = LevMar(self.setup, self.name, self.y, self.sigma, self.covar, self.y_name, self.lgf,
+                                 multiproc=self.multiproc)
             # Execute the levmar instance as a function through the __call__ method of the LevMar class
             msg = self.call_levmar()
             self.print_results(msg)
@@ -85,15 +88,14 @@ class ComputeOptimal:
                 #     os.system(cmd)
                 #     self.model_refs['deriv'][p.name] = Model(deriv_name, self.setup, verbose=self.verbose)
                 #     ii += 1
-                deriv_name = f"{self.name}-{ii+1:03}"
+                deriv_name = f"{self.name}-{ii + 1:03}"
                 # if not p.seismic:
-                    # Create a new .com file for each non-seismic parameter
+                # Create a new .com file for each non-seismic parameter
                 cmd = f"cp {self.name}.com {deriv_name}.com"
                 os.system(cmd)
                 # Create a new Model instance for each parameter
                 self.model_refs['deriv'][p.name] = Model(deriv_name, self.setup, verbose=self.verbose)
                 ii += 1
-
 
     def print_init_params(self):
         """
@@ -124,7 +126,7 @@ class ComputeOptimal:
         for i in range(self.ntargs):
             self.y[i] = self.targets[i].value
             self.sigma[i] = self.targets[i].sigma
-            self.covar[i, i] = self.targets[i].sigma**2
+            self.covar[i, i] = self.targets[i].sigma ** 2
             self.y_name.append(self.targets[i].name)
 
         # If there exists seismic constraints, we complete the data structures
@@ -149,7 +151,8 @@ class ComputeOptimal:
         :return: text written in the log file
         """
         (self.chi2, self.parout, self.outputs, self.iter, error, msg) \
-            = self.levmar(self.compute_model, (self.model_refs, self.targets), verbose=True, ftol=self.ftol, maxiter=self.maxiter,
+            = self.levmar(self.compute_model, (self.model_refs, self.targets), verbose=self.verbose,
+                          ftol=self.ftol, maxiter=self.maxiter,
                           chi2min=self.chi2min, cov_cdtnb_thr=self.cov_cdtnb_thr, hess_cdtnb_thr=self.hess_cdtnb_thr)
 
         if error:
@@ -175,10 +178,10 @@ class ComputeOptimal:
         index = status + 1
         name = model.name
 
-        print(50*'*')
+        print(50 * '*')
         print(f'Model {name}')
-        model.setup_com_file(parameters=parameters, settings=self.settings)
-        model.params.update_com(model.age_model)
+        model.setup_model_params(parameters=parameters, settings=self.settings)
+        model.params.update_params(model.age_model)
 
         # Empty output buffer
         sys.stdout.flush()
@@ -206,12 +209,21 @@ class ComputeOptimal:
         # else, we calculate the eigenfrequencies
         oscprog = self.settings['modes']['oscprog']
 
+        if self.verbose:
+            print(f"Computing model frequencies at age {model.age_model / 1e6} Myr with {oscprog}... ")
+
         if oscprog == 'pulse':
             model.tgec2pulse()
-            if self.verbose:
-                print(f"Computing model frequencies at age {model.age_model/1e6} Myr... ")
-            model.run.run_pulse(verbose=self.verbose, log=True)
+            model.run.run_pulse(log=True)
         # TODO: add adipls commands
+        elif oscprog == 'adipls':
+            data, aa = model.tgec2amdl(bv=True)
+            # data, aa = model.tgec2amdl()
+
+            if not model.write_amdl(f"{name}.amdl", data, aa):
+                raise NOCError("Unable to build the amdl file")
+
+            model.run.run_adipls()
 
         return self.__get_outputs(model, parameters)
 
@@ -222,16 +234,16 @@ class ComputeOptimal:
         """
         text = msg
         text += f"\nChi2 = {self.chi2:8g}"
-        text += f"\nReduced Chi2 = {self.chi2/float(self.ny):8g}\n"
+        text += f"\nReduced Chi2 = {self.chi2 / float(self.ny):8g}\n"
 
         if self.nseismic > 0:
             chi2s = self.chi2
             for i in range(self.ntargs):
-                chi2s -= (self.outputs[i] - self.y[i])**2/self.covar[i, i]
+                chi2s -= (self.outputs[i] - self.y[i]) ** 2 / self.covar[i, i]
             text += f"\nSeismic Chi2 = {chi2s:8g}"
-            text += f"\nReduced seismic Chi2 = {chi2s/float(self.ny - self.ntargs):8g}\n"
+            text += f"\nReduced seismic Chi2 = {chi2s / float(self.ny - self.ntargs):8g}\n"
             text += f"\nNon-seismic Chi2 = {self.chi2 - chi2s:8g}"
-            text += f"\nReduced non-seismic chi2 = {(self.chi2 - chi2s)/float(self.ntargs):8g}\n"
+            text += f"\nReduced non-seismic chi2 = {(self.chi2 - chi2s) / float(self.ntargs):8g}\n"
 
         text += "\nFinal parameters:\n"
         for p in self.parout:
@@ -244,7 +256,7 @@ class ComputeOptimal:
         if self.nseismic > 0:
             text += "\nDistances to seismic targets (# = model data sigma model-data): \n"
             for i in range(self.ntargs, self.ny):
-                text += f"{i - self.ntargs:3d} = {self.outputs[i]:8g} {self.y[i]:8g} {np.sqrt(self.covar[i,i])} " \
+                text += f"{i - self.ntargs:3d} = {self.outputs[i]:8g} {self.y[i]:8g} {np.sqrt(self.covar[i, i])} " \
                         f"{self.outputs[i] - self.y[i]:8g}\n"
 
         if self.verbose:
@@ -289,7 +301,7 @@ class ComputeOptimal:
                 i += 1
 
         if self.nseismic > 0:
-            outputs[self.ny-self.nseismic:] = self.__get_seismic_outputs(model, new_parameters)
+            outputs[self.ny - self.nseismic:] = self.__get_seismic_outputs(model, new_parameters)
 
         return outputs, error
 
