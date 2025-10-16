@@ -276,6 +276,8 @@ class SeismicModel:
         formula = surface_effects['formula']
         dict_se = {'_a': 0, '_b': 1, '_c': 2}
         dict_se_ = {0: '_a', 1: '_b', 2: '_c'}
+        dnu_se = []
+
         if surface_effects['prescription']:
             # surface effects parameters were set to 0.0, we use the Manchon et al. (2018) prescription
             for i, p in enumerate(se_params):
@@ -489,7 +491,7 @@ class FortranBinaryFile:
     def readRecordNative(self, dtype=None):
         a = self.file.read(4)  # record size in bytes
         recordsize = np.frombuffer(a, 'i')
-        record = self.file.read(recordsize[0])
+        record = self.file.read(int(recordsize[0]))
         self.file.read(4)  # record size in bytes
 
         if dtype in ('f', 'i', 'I', 'b', 'B', 'h', 'H', 'l', 'L', 'd'):

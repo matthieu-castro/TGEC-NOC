@@ -93,6 +93,7 @@ class LevMar:
 
         chi2i = self.chi2(self.current_optimal, self.y, self.W)
         chi2n = chi2i
+        dchi2 = (chi2n - chi2i)/chi2i
 
         self.__organize_files(levmar_args[0])
 
@@ -526,9 +527,11 @@ class LevMar:
         :return: tuple (shifted model, value of the step, error)
         :raises: NOCError if model computation does not finish
         """
+        y_model = []
         error = True
         param_copy = [p.copy() for p in parameters]
         iter = 0
+        step = 0
 
         setting_models = self.setup.settings['models']
         max_iter = 3 if setting_models is None else setting_models['retry']

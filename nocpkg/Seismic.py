@@ -80,6 +80,8 @@ class Seismic:
         self.y = np.array([])
         self.yn = np.array([])
         self.coef = np.empty((0, self.nu.size))
+        lval = []
+
         for t in types:
             if t in ['nu', 'dnu', 'd01', 'd02', 'rd02', 'sd', 'sd01', 'sd10', 'rsd10', 'rsd01']:
                 self.apply_func(self.dict_funcs[t])
