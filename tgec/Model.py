@@ -575,7 +575,14 @@ class Model:
             files += glob.glob(path)
         # Filtering of files ending with '000000' we don't want to read
         files = [file for file in files if not file.endswith('000000')]
+        # print(f"The structure files are: {files} and we are in {os.getcwd()}")
         for file in files:
+            if not os.path.exists(file):
+                print(f"Error: file {file} not found")
+                return
+            if not os.path.getsize(file):
+                print(f"Error: file {file} exists but is empty")
+                return
             if verbose:
                 print(f"Reading {file}...")
             with open(file, "r") as f:
@@ -663,6 +670,7 @@ class Model:
 
         :return: Adipls input data: global data and structure
         """
+        # print(f"Reading structure files: we are in {os.getcwd()}")
         self.read_struct_file(verbose=self.verbose)
         data = np.zeros(8)
         aa = np.zeros((6, self.nlayers))

@@ -190,6 +190,8 @@ class ComputeOptimal:
             # We just copy the central model to compute seismic quantities with different seismic parameters
             # model = Model(model_center.name, self.setup, verbose=self.verbose)
             os.system(f"cp -r {model_center.name} {name} && rm -r {name}/freqs")
+            os.chdir(f"{name}")
+            os.system(f"mv {model_center.name}.com {name}.com")
             model = Model(name, self.setup, verbose=self.verbose)
         else:
             model(update_com=False, debug=self.debug, log=True, verbose=self.verbose)
@@ -202,7 +204,9 @@ class ComputeOptimal:
                 return 0.0, True
 
             print(f"-> Computation of model {index} successfully finished")
-            os.chdir(self.cwd)
+
+        # We come back to the parent directory
+        os.chdir(self.cwd)
 
         if self.settings['modes'] is None:
             return self.__get_outputs(model, parameters)
