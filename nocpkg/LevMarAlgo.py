@@ -670,7 +670,8 @@ class LevMar:
         if self.ns > 0:
             array_out[self.nt:] = array_in[j:]
 
-    def __organize_files(self, model_refs):
+    @staticmethod
+    def __organize_files(model_refs):
         """
         Rename the file of the optimal model and remove the derivative models
         """
