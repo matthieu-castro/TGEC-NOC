@@ -13,7 +13,7 @@ if __name__ == "__main__":
     parser.add_argument('-v', '--verbose', action='store_true', default=False)
     parser.add_argument('-g', '--debug', action='store_true', default=False,
                         help="TGEC is run in debug mode.")
-    parser.add_argument('-m', '--multiprocessing', action='store_true', default=False,
+    parser.add_argument('-m', '--multiproc', action='store_true', default=False,
                         help="Parallel multiprocessing calculations")
 
     result = NOCMain(parser)

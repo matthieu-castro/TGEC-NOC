@@ -70,7 +70,7 @@ class Model:
         self.run = RunModel(self.name)
 
         # Output directory of tgec models
-        self.evol_path = self.name + '/evolution/'
+        self.evol_path = 'evolution/'
 
         # Output variables in file .in
         self.age, self.lstar, self.lum, self.teff, self.mstar, self.mass, self.rad \
@@ -147,6 +147,9 @@ class Model:
         sys.stdout.flush()
 
         # Run TGEC
+        # Create a working directory for the model and get to it
+        self.__create_wd()
+        # Load the data input tables
         self.run.load_tables()
         if self.rot:
             # When rotation is considered, we have to turn off diffusion during the disk-locking time
@@ -189,6 +192,25 @@ class Model:
                     f.write(f'Model did not reach the expected age')
                 self.finished = False
 
+    def __create_wd(self):
+        """
+        Create the working directory and copy useful files in it, then go in
+        """
+        work_dir = self.name
+
+        if not os.access(work_dir, os.F_OK):
+            os.mkdir(work_dir)
+
+        used_files = ['circmerid.dat', 'circulation.dat', 'diffusion.dat', 'param.dat', 'structure', 'clean',
+                      self.com_file]
+        for file in used_files:
+            if os.access(file, os.F_OK):
+                os.system(f"cp -p {file} {work_dir}")
+            else:
+                raise NOCError(f"File {file} could not be found.")
+
+        os.chdir(work_dir)
+
     def __process_output(self, tstart, verbose):
         """
         Process the output of TGEC model calculation and read the output file if needed
@@ -198,7 +220,8 @@ class Model:
         t2 = time.time()
         hr, mn, sc = time.gmtime(t2 - tstart)[3:6]
         if verbose:
-            print("DONE")
+            print("**************************************************")
+            print(f"Calculation of model {self.name}... DONE")
             print(f"Finished at {time.asctime()}")
             if hr == 0:
                 if mn == 0:
@@ -208,12 +231,11 @@ class Model:
             else:
                 print(f"\tTime: {hr:d}h {mn:02d}m {sc:02.2f}s")
 
-        cmd = f"mkdir -p {self.name}/evolution && cp {self.name}.com {self.name} " \
-              f"&& mv etoile_* {self.params.model_name}.* {self.name}"
+        cmd = f"mkdir evolution"
         os.system(cmd)
         ext_file = ['in', 'g', 'l', 'J', 'zc', 'ab']
         for i in ext_file:
-            cmd = f"cat {self.name}/{self.params.model_name}.{i}0* > {self.name}/evolution/{self.params.model_name}.{i}"
+            cmd = f"cat {self.params.model_name}.{i}0* > evolution/{self.params.model_name}.{i}"
             os.system(cmd)
 
         # os.system("./clean")
@@ -221,7 +243,7 @@ class Model:
 
         self.read_output(verbose=verbose)
 
-        # TODO: treat when there is an error
+
 
     def setup_model_params(self, setup=None, parameters=None, settings=None, verbose=True):
         """
