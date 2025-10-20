@@ -202,6 +202,7 @@ class ComputeOptimal:
                 return 0.0, True
 
             print(f"-> Computation of model {index} successfully finished")
+            os.chdir(self.cwd)
 
         if self.settings['modes'] is None:
             return self.__get_outputs(model, parameters)
@@ -215,7 +216,6 @@ class ComputeOptimal:
         if oscprog == 'pulse':
             model.tgec2pulse()
             model.run.run_pulse(log=True)
-        # TODO: add adipls commands
         elif oscprog == 'adipls':
             data, aa = model.tgec2amdl(bv=True)
             # data, aa = model.tgec2amdl()

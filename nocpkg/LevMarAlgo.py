@@ -1,5 +1,6 @@
 import multiprocessing
 import os
+import queue
 
 import numpy as np
 
@@ -51,7 +52,8 @@ class LevMar:
         self.multiproc = multiproc
         self.nproc = 0
         self.proc_index = {}
-        self.processes, self.parents, self.childs = [[] for _ in range(3)]
+        self.queue = multiprocessing.Queue()
+        self.processes = []
 
     def __call__(self, func, levmar_args, verbose=True, ftol=1e-3, maxiter=30, chi2min=1e-4,
                  lamb0=1e-4, cov_cdtnb_thr=1e13, hess_cdtnb_thr=1e13):
@@ -344,6 +346,7 @@ class LevMar:
         :param levmar_args: tuple containing the list of targets
         :return: message written in the log file
         """
+
         text = ""
         # Singular value decomposition (SVD) A = U S V
         (U, s, V) = np.linalg.svd(self.covar)
@@ -419,6 +422,7 @@ class LevMar:
 
         :return: tuple containing an error flag, the central values and the jacobian
         """
+
         error = False
 
         # Calculation of the central model and the shifted models
@@ -430,27 +434,35 @@ class LevMar:
                     self.__add_process(i + 1, self.func_deriv_shell, parameters, levmar_args)
                     self.nproc += 1
 
+            for proc in self.processes:
+                proc.join()
+
             shift_model = np.ones((self.ny, self.nproc))
-            steps = np.zeros(self.nproc)
-            res = []
+            steps = np.zeros(self.nproc-1)
 
             if any([proc.exitcode for proc in self.processes]):
                 raise NOCError("LevMar.levmar_step failed")
 
-            for i, parent in enumerate(self.parents):
-                res.append(parent.recv())
-                center_model[:] = res[0][0][:]
-                if res[-1][2]:
-                    return True, [], []
+            # print(f"Queue size before reading results = {self.queue.qsize()}")
 
-            i = 0
-            for p in self.parameters:
-                func_args_tmp = self.__get_func_args_tmp(levmar_args, p.name)
-                shift, steps[i], error = self.func_deriv(self.func, parameters, func_args_tmp, i)
+            for _ in range(self.nproc):
+                try:
+                    index, model, step, error = self.queue.get_nowait()
+                except queue.Empty:
+                    print("Queue is empty")
+                # print(f"Queue size after getting model {self.proc_index[index+1]} = {self.queue.qsize()}")
                 if error:
                     return True, [], []
-                self.__reorder_outputs(shift, shift_model[:, i])
-                i += 1
+                if index == -1:
+                    center_model = model
+                else:
+                    for i, p in enumerate(self.parameters):
+                        if self.proc_index[index+1] == p.name:
+                            shift = model
+                            steps[i] = step
+                            self.__reorder_outputs(shift, shift_model[:, i])
+
+            # print(f"Queue size after getting results = {self.queue.qsize()}")
 
         else:
             func_args_tmp = levmar_args[0]['center'], levmar_args[0]['center'], levmar_args[1]
@@ -470,11 +482,7 @@ class LevMar:
         for i, p in enumerate(self.parameters):
             mask_nan = np.argwhere(np.isfinite(shift_model[:, j]))
             jacob_tmp = (shift_model[:, j] - center_model[:])/steps[i]
-            # # if p.name == 'age':
-            # print(f"p = {p.name}: jacob_tmp = {jacob_tmp}, shift_model[:, {j}] = {shift_model[:, j]}, "
-            #       f"center_model = {center_model[:]}, steps = {steps[i]}")
             self.__reorder_outputs(jacob_tmp[mask_nan].flatten(), jacob[i, :])
-            # self.__reorder_outputs(np.compress(mask_nan, jacob_tmp), jacob[i, :])
             j += 1
 
         return error, center_model, jacob
@@ -554,20 +562,21 @@ class LevMar:
 
         return y_model, step, error
 
-    def func_shell(self, func, parameters, args, index, pipe):
+    def func_shell(self, func, parameters, args, index):
         """
         Wrapper used to run the function self.func in parallel
         :param func: function to be evaluated
         :param parameters: list of Parameter instances
         :param args: additional arguments passed to the function, tuple (model_refs, targets)
         :param index: index corresponding to the shifted parameter (index=-1 for central model)
-        :param pipe: pipe that connect two connection objects
         """
         (model, error) = func(parameters, args, index)
-        pipe.send((model, 0.0, error))
-        pipe.close()
+        # pipe.send((model, 0.0, error))
+        # pipe.close()
+        self.queue.put((index, model, 0.0, error))
+        # print(f"Queue size after putting model {self.proc_index[index+1]} = {self.queue.qsize()}")
 
-    def func_deriv_shell(self, func, parameters, args, index, pipe):
+    def func_deriv_shell(self, func, parameters, args, index):
         """
         Wrapper used to run the function self.func in parallel, to compute derivative with respect
         to a given parameter
@@ -575,13 +584,15 @@ class LevMar:
         :param parameters: list of Parameter instances
         :param args: additional arguments passed to the function, tuple (model_refs, targets)
         :param index: index corresponding to the shifted parameter (index=-1 for central model)
-        :param pipe: pipe that connect two connection objects
         """
         (model, step, error) = self.func_deriv(func, parameters, args, index)
-        pipe.send((model, step, error))
-        pipe.close()
+        # pipe.send((model, step, error))
+        # pipe.close()
+        self.queue.put((index, model, step, error))
+        # print(f"Queue size after putting model {self.proc_index[index+1]} = {self.queue.qsize()}")
 
-    def chi2(self, y_model, y, W):
+    @staticmethod
+    def chi2(y_model, y, W):
         """
         Compute the chi2 value
         :param y_model: values of targets from the model
@@ -611,16 +622,14 @@ class LevMar:
         model_ref = levmar_args[0]['center']
         func_args_tmp = (model, model_ref, levmar_args[1])
 
-        # We create a pipe of processes to launch a parallel computation of models
-        pipe = multiprocessing.Pipe()
-        self.proc_index[f"{pname}"] = self.nproc
-        self.parents.append(pipe[0])
-        self.childs.append(pipe[1])
+        # We create a queue of processes to launch a parallel computation of models
+        self.proc_index[self.nproc] = f"{pname}"
         self.processes.append(multiprocessing.Process(target=target_func, args=(self.func, parameters, func_args_tmp,
-                                                                                iparam-1, self.childs[-1])))
+                                                                                iparam-1)))
         self.processes[-1].start()
 
-    def __get_func_args_tmp(self, levmar_args, pname):
+    @staticmethod
+    def __get_func_args_tmp(levmar_args, pname):
         """
         Build the function arguments for func_deriv
         :param levmar_args: tuple containing the arguments for the LevMar method
