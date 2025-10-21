@@ -132,13 +132,13 @@ class LevMar:
             # if self.verbose:
             #     print(text)
 
-            # Upadte the parameters
+            # Update the parameters
             alpha = np.linalg.inv(np.matrix(alpha))
             dparam = np.array((alpha*np.matrix(beta.reshape((self.nparams, 1)))).flatten())[0]
             old_param = np.array([p.value for p in self.new_param])
 
             for i, p in enumerate(self.parameters):
-                self.new_param[i].value = np.max(np.min(p.value + np.sign(dparam[i])*np.min(np.abs(dparam[i]),
+                self.new_param[i].value = max(min(p.value + np.sign(dparam[i])*min(np.abs(dparam[i]), # type: ignore
                                                   np.abs(p.value*p.rate/100.0)), p.bounds[1]), p.bounds[0])
 
             text += "\nNew parameters:\n"
@@ -438,8 +438,8 @@ class LevMar:
             for proc in self.processes:
                 proc.join()
 
-            shift_model = np.ones((self.ny, len(self.parameters)))
-            steps = np.zeros(len(self.parameters))
+            shift_model = np.ones((self.ny, self.nparams))
+            steps = np.zeros(self.nparams)
             results = []
 
             if any([proc.exitcode for proc in self.processes]):
@@ -463,11 +463,12 @@ class LevMar:
             # We add the shifted models with seismic parameter and reorder the outputs
             for i, p in enumerate(self.parameters):
                 if not p.seismic:
-                    index, model, step, error = results[i]
-                    if index != -1 and self.proc_index[index+1] == p.name:
-                        shift = model
-                        steps[i] = step
-                        self.__reorder_outputs(shift, shift_model[:, i])
+                    for j in range(self.nproc):
+                        index, model, step, error = results[j]
+                        if index != -1 and self.proc_index[index+1] == p.name:
+                            shift = model
+                            steps[i] = step
+                            self.__reorder_outputs(shift, shift_model[:, i])
                 else:
                     func_args_tmp = self.__get_func_args_tmp(levmar_args, p.name)
                     (shift, steps[i], error) = self.func_deriv(self.func, parameters, func_args_tmp, i)
@@ -489,6 +490,7 @@ class LevMar:
                 if error:
                     return True, [], []
 
+        print(f"steps = {steps}")
         # Calculation of the Jacobian matrix:
         j = 0
         for i, p in enumerate(self.parameters):

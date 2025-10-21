@@ -21,6 +21,7 @@ class RunModel:
         self.com_file = name + '.com'
         self.tgec_log = name + '_tgec.log'
         self.pulse_log = name + '_pulse.log'
+        self.adipls_log = name + '_adipls.log'
 
     def run_tgec(self, verbose=False, debug=False, log=False, file=None):
         """
@@ -36,7 +37,7 @@ class RunModel:
             # if verbose:
             #     cmd = f"{self.exec} < {self.com_file} | tee {self.log_file}"
             # else:
-            cmd = f"{self.tgec_exec} < {file} > {self.tgec_log} 2> err.log"
+            cmd = f"{self.tgec_exec} < {file} > ../{self.tgec_log} 2> err.log"
         else:
             cmd = f"{self.tgec_exec} < {file}"
         os.system(cmd)
@@ -82,7 +83,7 @@ class RunModel:
         """
 
         # Clean former files
-        os.system(f"rm -f {self.name}.agsm {self.name}.ssm {self.name}.ef {self.name}-adipls.log")
+        os.system(f"rm -f {self.name}.agsm {self.name}.ssm {self.name}.ef {self.adipls_log}")
 
         # os.system(f"runadipls.pl {name}.amdl {center_name}.adipls > /dev/null")
         self.write_infile()
@@ -134,7 +135,7 @@ class RunModel:
         amde = f"{self.name}.amde"
         agsm = f"{self.name}.agsm"
         ssm = f"{self.name}.ssm"
-        log = f"{self.name}-adipls.log"
+        log = f"{self.adipls_log}"
         miss = f"{self.name}.ssm.miss"
         amdl = f"{self.name}.amdl"
         rkr = f"{self.name}.rkr"
