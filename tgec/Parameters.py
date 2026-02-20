@@ -66,7 +66,7 @@ class Parameters:
             self.zox0 = self.z0 / self.x0
         else:
             self.zox0 = zox_sun * (10 ** self.params_dict['FESURHINI'])
-        self.dydz = self.params_dict/['DYDZ']
+        self.dydz = self.params_dict['DYDZ']
 
         # Diffusion
         if self.params_dict['IDIFCC'] == 0:
