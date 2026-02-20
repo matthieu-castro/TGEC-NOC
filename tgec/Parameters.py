@@ -49,15 +49,24 @@ class Parameters:
         else:
             self.start = 'ms'
 
+        # Initial abundances
+        zox_sun = None
+        if self.params_dict['IABOND'] == 0:
+            self.abond = 'GN93'
+            zox_sun = 0.0244
+        elif self.params_dict['IABOND'] == 2:
+            self.abond = 'Asp09'
+            zox_sun = 0.0181
+
         # Initial composition
         self.y0 = self.params_dict['YINI']
         if self.params_dict['FESURHINI'] == 9:
             self.x0 = (1 - self.y0) / (1 + self.params_dict['ZOXINI'])
             self.z0 = 1 - self.x0 - self.y0
+            self.zox0 = self.z0 / self.x0
         else:
-            self.z0 = 0.0181 * (10 ** self.params_dict['FESURHINI'])
-            self.x0 = 1 - self.y0 - self.z0
-        self.zox0 = self.z0 / self.x0
+            self.zox0 = zox_sun * (10 ** self.params_dict['FESURHINI'])
+        self.dydz = self.params_dict/['DYDZ']
 
         # Diffusion
         if self.params_dict['IDIFCC'] == 0:
@@ -70,12 +79,6 @@ class Parameters:
             self.rot = True
         else:
             self.rot = False
-
-        # Initial abundances
-        if self.params_dict['IABOND'] == 0:
-            self.abond = 'GN93'
-        elif self.params_dict['IABOND'] == 2:
-            self.abond = 'Asp09'
 
     def read_params(self):
         """

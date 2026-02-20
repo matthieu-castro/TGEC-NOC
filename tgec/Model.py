@@ -327,10 +327,10 @@ class Model:
         :param parameters: free parameters mentioned in the JSON file
         :param verbose: print details option (default=True)
         """
-        # TODO: include FESURHINI
         free = 0
         y0 = -1.0
         zox0 = -1.0
+        diff = -1.0
         for p in parameters:
             if p.name == 'y0':
                 free += 1
@@ -338,12 +338,16 @@ class Model:
             elif p.name == 'zox0':
                 free += 1
                 zox0 = self.params.zox0
+            elif p.name == 'dydz':
+                free += 1
+                diff = self.params.dydz
+                zox0 = self.params.zox0
 
         if free == 0:
             y0 = self.params.y0
             zox0 = self.params.zox0
         elif free == 1:
-            y0, zox0 = self.get_enrichment(y0, zox0, verbose=verbose)
+            y0, zox0 = self.get_enrichment(y0, zox0, diff, verbose=verbose)
 
         # Parameters of the model are updated
         self.params.y0 = y0
@@ -351,24 +355,29 @@ class Model:
         self.params.x0 = (1.0 - self.params.y0) / (1.0 + self.params.zox0)
         self.params.z0 = (1.0 - self.params.x0 - self.params.y0)
 
-    def get_enrichment(self, y0, zox0, verbose=True):
+    def get_enrichment(self, y0, zox0, diff, verbose=True):
         """
         Calculate Y0 or [Z/X]0 from the primitive abundance and the enrichment parametrized in the model settings
         in the JSON file
         :param y0: Initial helium abundance
         :param zox0: Initial Z over X abundance
+        :param diff: helium to metal enrichment ratio dy/dz
         :param verbose: print details option (default=True)
 
         :return: y0 and zox0 updated
         """
-        diff = self.settings['models']['dy_dz']
+
         yp = self.settings['models']['yp']
         zp = self.settings['models']['zp']
 
         # If y0 is not a free parameter, it is calculated from the primitive abundances and the enrichment
         # TODO: verify these equations
         if y0 < 0.0:
-            y0 = 1.0 - (1 + zox0) * (1.0 + diff * zp - yp) / (1.0 + (1.0 + diff) * zox0)
+            if diff < 0.0:
+                diff = self.settings['models']['dy_dz']
+                y0 = 1.0 - (1.0 + zox0) * (1.0 + diff * zp - yp) / (1.0 + (1.0 + diff) * zox0)
+            else:
+                y0 = yp + diff * zox0 * (1.0 - yp) / (1.0 + (1.0 + diff) * zox0)
         if zox0 < 0.0:
             zox0 = (yp - y0 - diff * zp) / ((1.0 + diff) * y0 - (1.0 - diff) * zp)
 

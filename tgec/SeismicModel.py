@@ -98,20 +98,15 @@ class SeismicModel:
         modes_n = np.empty((0, 4))
 
         # We check that the theoretical frequencies cover the observed ones
-        lval0 = self.seismic.get_l_values(self.modes)
-        # print('lval0=', end=' ')
-        # print(lval0)
-        # print('lval=', end=' ')
-        # print(seismic_constraints.lval)
-        for lc in seismic_constraints.lval:
+        lval0 = self.seismic.get_l_values(self.modes)  # Theoretical l values
+        for lc in seismic_constraints.lval:  # Observed constraints l values
             found = False
             for l in lval0:
                 if lc == l:
                     found = True
                     j = (np.where(self.modes[:, 1] == lc))[0]
                     jc = (np.where(seismic_constraints.l == lc))[0]
-                    LS = (seismic_constraints.nu[jc[1:]] - seismic_constraints.nu[jc[0:-1]]).mean()
-                    # print(f"{0.5 * LS}")
+                    LS = (seismic_constraints.nu[jc[1:]] - seismic_constraints.nu[jc[0:-1]]).mean()  # Mean observed frequencies large separation
                     count = 1
                     imin = 0
                     if seismic_constraints.matching == 'continuous_frequency':
@@ -284,7 +279,7 @@ class SeismicModel:
                 se_params[i] = self.surface_effects_prescription(formula + dict_se_[i], lsep)
         # elif se_params is None:
             # surface effects parameters were set as tunable parameters
-            se_params = []
+            # se_params = []
         else:
             for p in parameters:
                 if p.name in ['se_a', 'se_b', 'se_c']:
@@ -306,7 +301,7 @@ class SeismicModel:
         elif formula == 'kb2008':
             dnu_se = se_params[0] * numax * (nu / numax) ** se_params[1]
         elif formula == 'bg1':
-            dnu_se = se_params[0] * numax * (nu / numax) ** 3 / self.modes[:, 7]
+            dnu_se = se_params[0] * numax * (nu / numax) ** 3 / self.modes[:, 7]  # self.modes[:,7] does not exist yet
         elif formula == 'bg2':
             dnu_se = (se_params[0] * numax / nu + se_params[1] * (nu / numax) ** 3) * numax / self.modes[:, 7]
 
